@@ -10,11 +10,66 @@ This repository contains a Docker Compose setup for deploying Keycloak with auto
 
 ## Prerequisites
 
-- Docker and Docker Compose installed
+- Ubuntu Server (tested on Ubuntu 24.04 LTS)
+- Root or sudo access
 - Domain name `devsso.swinnertonsolutions.com` pointing to your server's IP address
-- Ports 80 and 443 open on your firewall
+- Ports 80 and 443 accessible from the internet
 
-## Setup Instructions
+## Quick Start (Automated Setup)
+
+For a fresh Ubuntu server, use the automated setup script:
+
+### 1. Server Setup (First Time Only)
+
+SSH into your server and run:
+
+```bash
+# Download the setup script
+curl -o setup-server.sh https://raw.githubusercontent.com/evcruz3/swinnerton-clima-iam/main/setup-server.sh
+
+# Make it executable
+chmod +x setup-server.sh
+
+# Run as root
+sudo ./setup-server.sh
+```
+
+This script will install:
+- Docker Engine and Docker Compose
+- Git
+- Configure firewall (UFW) with ports 22, 80, and 443
+- Verify all installations
+
+**Important:** Log out and log back in after running the setup script for Docker permissions to take effect.
+
+### 2. Deploy Keycloak
+
+After logging back in, clone the repository and deploy:
+
+```bash
+# Clone the repository
+git clone https://github.com/evcruz3/swinnerton-clima-iam.git
+cd swinnerton-clima-iam
+
+# Create and configure environment file
+cp .env.example .env
+nano .env  # Update passwords and email
+
+# Run deployment script
+chmod +x deploy.sh
+./deploy.sh
+```
+
+The deployment script will:
+- Verify prerequisites
+- Check DNS configuration
+- Pull Docker images
+- Start all services
+- Display deployment status
+
+## Manual Setup Instructions
+
+If you prefer to set up manually or already have Docker installed:
 
 1. **Clone or navigate to this directory**
 
@@ -133,6 +188,8 @@ cat backup.sql | docker compose exec -T postgres psql -U keycloak keycloak
 ├── docker-compose.yml          # Main Docker Compose configuration
 ├── .env                        # Environment variables (create from .env.example)
 ├── .env.example                # Example environment file
+├── setup-server.sh             # Automated server setup script (installs Docker, etc.)
+├── deploy.sh                   # Automated deployment script
 ├── nginx/
 │   └── conf.d/
 │       └── keycloak.conf       # Nginx reverse proxy configuration
