@@ -1,0 +1,31 @@
+# CodeIgniter
+/.env
+/vendor/
+/writable/
+/public/uploads/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Cache
+/writable/cache/*
+!/writable/cache/index.html
+
+# Session
+/writable/session/*
+!/writable/session/index.html
+
+# Uploads
+/writable/uploads/*
+!/writable/uploads/index.html
