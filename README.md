@@ -181,6 +181,34 @@ cat backup.sql | docker compose exec -T postgres psql -U keycloak keycloak
 5. Enable Keycloak security features (MFA, password policies, etc.)
 6. Regular database backups
 
+## Integration Examples
+
+### CodeIgniter 4 + Keycloak OIDC
+
+A complete example demonstrating how to integrate Keycloak authentication with CodeIgniter 4 using OpenID Connect.
+
+**Location:** `codeigniter-example/`
+
+**Features:**
+- Simple login/logout with Keycloak
+- OpenID Connect (OIDC) integration using `jumbojett/openid-connect-php`
+- Session-based user management
+- User profile display from Keycloak
+- Automated setup script
+
+**Quick Start:**
+```bash
+cd codeigniter-example
+./setup.sh
+php spark serve
+```
+
+Visit http://localhost:8080 and login with your Keycloak credentials.
+
+**Documentation:**
+- [Application Setup](codeigniter-example/README.md)
+- [Keycloak Configuration Guide](codeigniter-example/KEYCLOAK_SETUP.md)
+
 ## File Structure
 
 ```
@@ -193,5 +221,10 @@ cat backup.sql | docker compose exec -T postgres psql -U keycloak keycloak
 ├── nginx/
 │   └── conf.d/
 │       └── keycloak.conf       # Nginx reverse proxy configuration
+├── codeigniter-example/        # CodeIgniter 4 + Keycloak OIDC integration example
+│   ├── app/                    # Application code
+│   ├── README.md               # Setup instructions
+│   ├── KEYCLOAK_SETUP.md       # Keycloak configuration guide
+│   └── setup.sh                # Automated setup script
 └── README.md                   # This file
 ```
