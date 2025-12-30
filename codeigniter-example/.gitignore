@@ -4,6 +4,16 @@
 /writable/
 /public/uploads/
 
+# CI3 specific
+/application/vendor/
+/application/cache/*
+!/application/cache/.gitkeep
+/application/logs/*
+!/application/logs/.gitkeep
+/application/sessions/*
+!/application/sessions/.gitkeep
+/system/
+
 # IDE
 .vscode/
 .idea/

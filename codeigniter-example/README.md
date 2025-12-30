@@ -1,6 +1,6 @@
-# CodeIgniter 4 + Keycloak OIDC Integration Example
+# CodeIgniter 3 + Keycloak OIDC Integration Example
 
-A simple example demonstrating how to integrate Keycloak authentication with CodeIgniter 4 using OpenID Connect (OIDC).
+A simple example demonstrating how to integrate Keycloak authentication with CodeIgniter 3 using OpenID Connect (OIDC).
 
 ## Prerequisites
 
@@ -26,41 +26,26 @@ cd codeigniter-example
 composer install
 ```
 
-### 2. Configure Environment
+### 2. Configure Application
 
-Copy the `.env` file from CodeIgniter framework:
+Edit `application/config/config.php`:
 
-```bash
-cp vendor/codeigniter4/framework/app/.env .env
-```
-
-Edit `.env` and set:
-
-```ini
-CI_ENVIRONMENT = development
-
-app.baseURL = 'http://localhost:8080'
-
-# Session
-app.sessionDriver = 'CodeIgniter\Session\Handlers\FileHandler'
-app.sessionCookieName = 'ci_session'
-app.sessionExpiration = 7200
-app.sessionSavePath = writable/session
-app.sessionMatchIP = false
-app.sessionTimeToUpdate = 300
-app.sessionRegenerateDestroy = false
+```php
+$config['base_url'] = 'http://localhost:8080/';
+$config['encryption_key'] = 'your-encryption-key-here-change-in-production';
 ```
 
 ### 3. Configure Keycloak
 
-Edit `app/Config/Keycloak.php` if needed (already configured for CLIMA realm):
+Edit `application/config/keycloak.php` if needed (already configured for CLIMA realm):
 
 ```php
-public string $serverUrl = 'https://devsso.swinnertonsolutions.com';
-public string $realm = 'CLIMA';
-public string $clientId = 'clima-frontend';
-public string $clientSecret = 'gQig4u1mLON1CEDxhXQwTI1CaWhCGA8v';
-public string $redirectUri = 'http://localhost:8080/auth/callback';
+$config['keycloak_server_url'] = 'https://devsso.swinnertonsolutions.com';
+$config['keycloak_realm'] = 'CLIMA';
+$config['keycloak_client_id'] = 'clima-frontend';
+$config['keycloak_client_secret'] = 'gQig4u1mLON1CEDxhXQwTI1CaWhCGA8v';
+$config['keycloak_redirect_uri'] = 'http://localhost:8080/auth/callback';
+$config['keycloak_scopes'] = ['openid', 'profile', 'email'];
 ```
 
 ### 4. Setup Keycloak Client in Admin Console
@@ -110,17 +95,28 @@ Visit http://localhost:8080
 
 ```
 codeigniter-example/
-├── app/
-│   ├── Config/
-│   │   ├── Keycloak.php      # Keycloak configuration
-│   │   └── Routes.php         # Application routes
-│   ├── Controllers/
+├── application/
+│   ├── config/
+│   │   ├── keycloak.php       # Keycloak configuration
+│   │   ├── config.php         # Main CI3 configuration
+│   │   ├── autoload.php       # Autoload configuration
+│   │   ├── routes.php         # Application routes
+│   │   └── hooks.php          # Hook configuration
+│   ├── controllers/
 │   │   ├── Auth.php           # Authentication controller
 │   │   ├── Dashboard.php      # Protected dashboard
 │   │   └── Home.php           # Public home page
-│   └── Views/
+│   ├── core/
+│   │   └── MY_Controller.php  # Base controller with auth helpers
+│   ├── hooks/
+│   │   └── Auth_check.php     # Authentication hook
+│   ├── libraries/
+│   │   └── Keycloak_auth.php  # Keycloak authentication library
+│   └── views/
 │       ├── welcome.php        # Login page
 │       └── dashboard.php      # User dashboard
+├── system/                    # CI3 system files
+├── index.php                  # Front controller
 ├── composer.json
 └── README.md
 ```
@@ -160,24 +156,47 @@ User clicks "Logout"
 
 ## Key Files Explained
 
-### app/Config/Keycloak.php
+### application/config/keycloak.php
 
-Configuration class containing all Keycloak settings:
+Configuration array containing all Keycloak settings:
 - Server URL
 - Realm name
 - Client ID and secret
 - Redirect URIs
-- Helper methods for endpoint URLs
+- Scopes
 
-### app/Controllers/Auth.php
+### application/libraries/Keycloak_auth.php
 
-Handles authentication flow:
+Library that wraps the OIDC client functionality:
 - `login()`: Initiates OIDC authentication
-- `callback()`: Handles OAuth callback
-- `logout()`: Logs out from Keycloak
-- `checkAuth()`: Middleware-like method to protect routes
+- `handle_callback()`: Handles OAuth callback and stores tokens
+- `logout()`: Destroys session and returns logout URL
+- `is_authenticated()`: Checks if user is logged in
+- `get_user_info()`: Returns user profile from session
 
-### app/Controllers/Dashboard.php
+### application/controllers/Auth.php
+
+Authentication controller:
+- Uses `Keycloak_auth` library
+- Handles login, callback, and logout routes
+- Manages authentication flow
+
+### application/core/MY_Controller.php
+
+Base controller with authentication helpers:
+- `is_authenticated()`: Check auth status
+- `require_auth()`: Protect routes (redirect if not authenticated)
+- `get_user_info()`: Get current user info
+- `needs_authentication()`: Determine if controller needs auth
+
+### application/hooks/Auth_check.php
+
+Post-controller-constructor hook that:
+- Automatically checks authentication for protected controllers
+- Redirects to login if user is not authenticated
+- Excludes public controllers (auth, home)
+
+### application/controllers/Dashboard.php
 
 Protected page that requires authentication. Displays user information from Keycloak.
 
@@ -206,22 +225,24 @@ $idToken = $oidc->getIdToken();
 
 ## Protecting Routes
 
-To protect a route, add a check in your controller:
+Routes are automatically protected by the `Auth_check` hook. To make a controller public, add it to the `$public_controllers` array in `MY_Controller.php`:
+
+```php
+protected $public_controllers = array('auth', 'home');
+```
+
+Or manually protect individual methods in your controller:
 
 ```php
 public function protectedPage()
 {
-    $session = session();
-
-    if (!$session->get('logged_in')) {
-        return redirect()->to('/auth/login');
-    }
+    $this->require_auth();
 
     // Your protected code here
 }
 ```
 
-Or create a filter for better reusability.
+The authentication hook runs automatically after each controller constructor.
 
 ## Troubleshooting
 
@@ -248,28 +269,30 @@ $this->oidc->setVerifyPeer(false);
 
 ### Session not persisting
 
-Make sure the `writable/session` directory exists and is writable:
+Make sure the `application/sessions` directory exists and is writable:
 
 ```bash
-mkdir -p writable/session
-chmod 777 writable/session
+mkdir -p application/sessions
+chmod 777 application/sessions
 ```
 
 ## Security Notes
 
-1. **Never commit secrets**: Add `.env` to `.gitignore`
+1. **Never commit secrets**: Store client secrets in environment variables or secure configuration
 2. **Use HTTPS in production**: Always use HTTPS for OAuth flows
 3. **Validate tokens**: The library validates tokens automatically
 4. **Secure sessions**: Use secure session settings in production
 5. **CSRF protection**: CodeIgniter has built-in CSRF protection
+6. **Encryption key**: Change the encryption key in `config.php` to a strong, unique value
 
 ## Production Checklist
 
 - [ ] Use HTTPS for all URLs
-- [ ] Set `CI_ENVIRONMENT = production` in `.env`
+- [ ] Set `ENVIRONMENT` constant to `production` in `index.php`
 - [ ] Update redirect URIs in Keycloak to production URLs
 - [ ] Use strong, unique client secrets
-- [ ] Enable session encryption
+- [ ] Change encryption key in `application/config/config.php`
+- [ ] Set secure session configuration
 - [ ] Set proper CORS policies
 - [ ] Enable rate limiting
 - [ ] Monitor authentication logs
@@ -308,7 +331,7 @@ Configure custom attributes in Keycloak and they'll appear in `userInfo`.
 
 - [Keycloak Documentation](https://www.keycloak.org/documentation)
 - [OpenID Connect PHP Library](https://github.com/jumbojett/OpenID-Connect-PHP)
-- [CodeIgniter 4 Documentation](https://codeigniter.com/user_guide/)
+- [CodeIgniter 3 Documentation](https://codeigniter.com/userguide3/)
 - [OAuth 2.0 Specification](https://oauth.net/2/)
 - [OpenID Connect Specification](https://openid.net/connect/)
 
