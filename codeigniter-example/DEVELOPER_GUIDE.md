@@ -157,6 +157,11 @@ class Keycloak_auth
         $this->CI =& get_instance();
         $this->CI->load->config('keycloak');
 
+        $this->initialize_oidc();
+    }
+
+    protected function initialize_oidc()
+    {
         $server_url = $this->CI->config->item('keycloak_server_url');
         $realm = $this->CI->config->item('keycloak_realm');
         $client_id = $this->CI->config->item('keycloak_client_id');
@@ -178,7 +183,12 @@ class Keycloak_auth
 
     public function login()
     {
-        $this->oidc->authenticate();
+        try {
+            $this->oidc->authenticate();
+        } catch (Exception $e) {
+            log_message('error', 'Keycloak authentication error: ' . $e->getMessage());
+            throw $e;
+        }
     }
 
     // ... other methods (we'll add these later)
@@ -328,25 +338,57 @@ In your `Keycloak_auth` library, add the `handle_callback()` method:
 ```php
 public function handle_callback()
 {
-    // Complete the authentication
-    $this->oidc->authenticate();
+    try {
+        // Complete the authentication
+        $this->oidc->authenticate();
 
-    // Get user information from Keycloak
-    $user_info = $this->oidc->requestUserInfo();
+        // Get tokens first
+        $access_token = $this->oidc->getAccessToken();
+        $id_token = $this->oidc->getIdToken();
 
-    // Get tokens
-    $access_token = $this->oidc->getAccessToken();
-    $id_token = $this->oidc->getIdToken();
+        // Get user information from Keycloak
+        $user_info = $this->oidc->requestUserInfo();
 
-    // Store in session
-    $this->CI->session->set_userdata(array(
-        'logged_in' => TRUE,
-        'user_info' => $user_info,
-        'access_token' => $access_token,
-        'id_token' => $id_token
-    ));
+        // Store in session
+        $this->CI->session->set_userdata(array(
+            'logged_in' => TRUE,
+            'user_info' => $user_info,
+            'access_token' => $access_token,
+            'id_token' => $id_token
+        ));
 
-    return $user_info;
+        return $user_info;
+
+    } catch (Exception $e) {
+        log_message('error', 'Keycloak callback error: ' . $e->getMessage());
+        throw $e;
+    }
+}
+```
+
+### Helper Methods
+
+The Keycloak_auth library also includes these convenient helper methods:
+
+```php
+public function is_authenticated()
+{
+    return $this->CI->session->userdata('logged_in') === TRUE;
+}
+
+public function get_user_info()
+{
+    return $this->CI->session->userdata('user_info');
+}
+
+public function get_access_token()
+{
+    return $this->CI->session->userdata('access_token');
+}
+
+public function get_id_token()
+{
+    return $this->CI->session->userdata('id_token');
 }
 ```
 
@@ -443,16 +485,33 @@ class MY_Controller extends CI_Controller
 {
     protected $public_controllers = array('auth', 'home');
 
+    public function __construct()
+    {
+        parent::__construct();
+    }
+
     protected function is_authenticated()
     {
-        return $this->session->userdata('logged_in') === true;
+        return $this->session->userdata('logged_in') === TRUE;
+    }
+
+    protected function get_user_info()
+    {
+        return $this->session->userdata('user_info');
     }
 
     protected function require_auth()
     {
         if (!$this->is_authenticated()) {
+            $this->session->set_flashdata('error', 'Please login to access this page');
             redirect('auth/login');
         }
+    }
+
+    public function needs_authentication()
+    {
+        $controller = $this->router->fetch_class();
+        return !in_array(strtolower($controller), $this->public_controllers);
     }
 }
 
@@ -471,11 +530,15 @@ class Dashboard extends MY_Controller
 
 Access tokens expire quickly (typically 5 minutes). You have two options:
 
-#### Option 1: Refresh Token (Recommended)
+#### Option 1: Refresh Token (Optional Enhancement)
+
+> **Note:** Token refresh is not implemented in the example code but can be added as an enhancement.
 
 ```php
 <?php
 // application/libraries/Keycloak_auth.php
+
+// Note: This method is an optional enhancement, not included in the base example
 
 public function refresh_access_token()
 {
@@ -513,9 +576,9 @@ protected function check_token_expiration()
 }
 ```
 
-#### Option 2: Re-authenticate
+#### Option 2: Re-authenticate (Default in Example)
 
-Simply redirect users to login again when their session expires.
+Simply redirect users to login again when their session expires. This is the approach used in the example implementation.
 
 ---
 
@@ -531,24 +594,36 @@ Log the user out of both your application AND Keycloak:
 
 public function logout()
 {
-    // Get the ID token from session
-    $idToken = $this->session->userdata('id_token');
+    // Get Keycloak logout URL and destroy session
+    $logout_url = $this->keycloak_auth->logout();
 
-    // Build Keycloak logout URL
-    $serverUrl = $this->config->item('keycloak_server_url');
-    $realm = $this->config->item('keycloak_realm');
-    $redirectUri = $this->config->item('base_url');
-
-    $logoutUrl = $serverUrl . '/realms/' . $realm . '/protocol/openid-connect/logout?' . http_build_query([
-        'post_logout_redirect_uri' => $redirectUri,
-        'id_token_hint' => $idToken
+    // Build full logout URL with redirect
+    $logout_url .= '?' . http_build_query([
+        'post_logout_redirect_uri' => base_url(),
+        'id_token_hint' => $this->session->userdata('id_token')
     ]);
 
-    // Clear local session
-    $this->session->sess_destroy();
-
     // Redirect to Keycloak logout
-    redirect($logoutUrl);
+    redirect($logout_url);
+}
+```
+
+In the Keycloak_auth library:
+
+```php
+<?php
+// application/libraries/Keycloak_auth.php
+
+public function logout()
+{
+    $server_url = $this->CI->config->item('keycloak_server_url');
+    $realm = $this->CI->config->item('keycloak_realm');
+
+    // Destroy session
+    $this->CI->session->sess_destroy();
+
+    // Return Keycloak logout URL
+    return $server_url . '/realms/' . $realm . '/protocol/openid-connect/logout';
 }
 ```
 
@@ -591,18 +666,21 @@ class Auth_check
         $CI =& get_instance();
 
         // Get the current controller
-        $controller = $CI->router->class;
+        $controller = $CI->router->fetch_class();
 
         // Skip public controllers
         $publicControllers = array('auth', 'home');
-        if (in_array($controller, $publicControllers)) {
+        if (in_array(strtolower($controller), $publicControllers)) {
             return;
         }
 
         // Check if user is logged in
         if (!$CI->session->userdata('logged_in')) {
             // Store the intended destination
-            $CI->session->set_userdata('redirect_after_login', current_url());
+            $CI->session->set_userdata('redirect_url', current_url());
+
+            // Set error message
+            $CI->session->set_flashdata('error', 'Please login to access this page');
 
             // Redirect to login
             redirect('auth/login');
@@ -611,7 +689,7 @@ class Auth_check
 }
 ```
 
-Then redirect to the original URL after login:
+You can optionally redirect to the original URL after login:
 
 ```php
 <?php
@@ -624,12 +702,15 @@ public function callback()
     try {
         $userInfo = $this->keycloak_auth->handle_callback();
 
-        // Get intended destination
-        $redirectTo = $this->session->userdata('redirect_after_login');
-        $this->session->unset_userdata('redirect_after_login');
+        // Optional: Get intended destination (if using the redirect pattern)
+        $redirectTo = $this->session->userdata('redirect_url');
+        if ($redirectTo) {
+            $this->session->unset_userdata('redirect_url');
+            redirect($redirectTo);
+        }
 
-        // Redirect
-        redirect($redirectTo ?: 'dashboard');
+        // Default redirect
+        redirect('dashboard');
     } catch (Exception $e) {
         $this->session->set_flashdata('error', $e->getMessage());
         redirect('/');
@@ -637,7 +718,11 @@ public function callback()
 }
 ```
 
+> **Note:** The example implementation doesn't use the redirect-after-login pattern and always redirects to 'dashboard'. The code above shows how you could implement it if needed.
+
 ### Pattern 2: Role-Based Access Control (RBAC)
+
+> **Note:** This pattern is not implemented in the example code but can be added as an enhancement.
 
 Extract roles from the access token in MY_Controller:
 
@@ -647,6 +732,8 @@ Extract roles from the access token in MY_Controller:
 
 class MY_Controller extends CI_Controller
 {
+    // Note: These methods are optional enhancements, not included in the base example
+
     protected function get_user_roles()
     {
         $accessToken = $this->session->userdata('access_token');
@@ -788,6 +875,8 @@ $redirectUri = 'http://localhost:8080/auth/callback'; // Must match exactly
 // application/config/autoload.php
 
 $autoload['libraries'] = array('session');
+$autoload['helper'] = array('url');
+$autoload['config'] = array('keycloak');
 ```
 
 The Keycloak_auth library will use CodeIgniter's existing session, so no additional configuration is needed.
@@ -1045,8 +1134,7 @@ class Home extends MY_Controller
 {
     public function index()
     {
-        $data['user_info'] = $this->get_user_info();
-        $this->load->view('welcome', $data);
+        $this->load->view('welcome');
     }
 }
 ```
@@ -1118,14 +1206,16 @@ class Dashboard extends MY_Controller
     <title>Home</title>
 </head>
 <body>
-    <?php if ($user_info): ?>
-        <h1>Welcome, <?= htmlspecialchars($user_info->name) ?>!</h1>
-        <a href="<?= base_url('dashboard') ?>">Dashboard</a>
-        <a href="<?= base_url('auth/logout') ?>">Logout</a>
-    <?php else: ?>
-        <h1>Welcome</h1>
-        <a href="<?= base_url('auth/login') ?>">Login with Keycloak</a>
+    <h1>Welcome to CLIMA</h1>
+    <p>Please login with your Keycloak account to continue</p>
+
+    <?php if ($this->session->flashdata('error')): ?>
+        <div class="error">
+            <?= htmlspecialchars($this->session->flashdata('error'), ENT_QUOTES, 'UTF-8') ?>
+        </div>
     <?php endif; ?>
+
+    <a href="<?= base_url('auth/login') ?>">Login with Keycloak</a>
 </body>
 </html>
 ```
